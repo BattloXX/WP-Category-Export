@@ -4,7 +4,7 @@
  * Plugin URI:  https://github.com/BattloXX/WP-Category-Export
  * Description: Exportiert alle Beiträge einer Kategorie als CSV oder Excel (XLSX) und lädt die Headerbilder als ZIP herunter. Das Headerbild ist im Export eindeutig verlinkt und benannt.
  * Version:     1.1.0
- * Author:      BattloXX
+ * Author:      Johannes Battlogg
  * Text Domain: kategorie-exporter
  * License:     GPL-2.0+
  */
