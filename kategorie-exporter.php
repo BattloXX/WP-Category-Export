@@ -3,7 +3,7 @@
  * Plugin Name: Kategorie Post & Bild Exporter
  * Plugin URI:  https://github.com/BattloXX/WP-Category-Export
  * Description: Exportiert alle Beiträge einer Kategorie als CSV oder Excel (XLSX) und lädt die Headerbilder als ZIP herunter. Das Headerbild ist im Export eindeutig verlinkt und benannt.
- * Version:     1.0.0
+ * Version:     1.1.0
  * Author:      BattloXX
  * Text Domain: kategorie-exporter
  * License:     GPL-2.0+
@@ -23,10 +23,12 @@ add_action( 'admin_notices', [ 'Kategorie_Exporter', 'show_notices' ] );
 
 class Kategorie_Exporter {
 
-	const NONCE_ACTION = 'kategorie_export';
-	const NONCE_FIELD  = '_wpnonce';
-	const ACTION_FIELD = 'kat_export_action';
-	const CAT_FIELD    = 'kat_export_cat_id';
+	const NONCE_ACTION  = 'kategorie_export';
+	const NONCE_FIELD   = '_wpnonce';
+	const ACTION_FIELD  = 'kat_export_action';
+	const CAT_FIELD     = 'kat_export_cat_id';
+	const DATE_FROM     = 'kat_export_date_from';
+	const DATE_TO       = 'kat_export_date_to';
 
 	/* -----------------------------------------------------------------------
 	 * Admin Menu
@@ -51,8 +53,8 @@ class Kategorie_Exporter {
 			wp_die( esc_html__( 'Keine Berechtigung.', 'kategorie-exporter' ) );
 		}
 
-		$categories = get_categories( [ 'hide_empty' => false, 'orderby' => 'name', 'order' => 'ASC' ] );
-		$selected   = isset( $_GET['cat_id'] ) ? absint( $_GET['cat_id'] ) : 0;
+		$categories  = get_categories( [ 'hide_empty' => false, 'orderby' => 'name', 'order' => 'ASC' ] );
+		$selected    = isset( $_GET['cat_id'] ) ? absint( $_GET['cat_id'] ) : 0;
 		?>
 		<div class="wrap">
 			<h1><?php esc_html_e( 'Kategorie Post & Bild Exporter', 'kategorie-exporter' ); ?></h1>
@@ -84,6 +86,35 @@ class Kategorie_Exporter {
 										</option>
 									<?php endforeach; ?>
 								</select>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row" style="padding-left:0;padding-top:12px;">
+								<?php esc_html_e( 'Zeitraum', 'kategorie-exporter' ); ?>
+								<span style="font-weight:400;color:#787c82;font-size:12px;display:block;margin-top:2px;">
+									<?php esc_html_e( '(optional)', 'kategorie-exporter' ); ?>
+								</span>
+							</th>
+							<td style="padding-left:0;padding-top:12px;">
+								<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+									<label for="kat_export_date_from" style="font-weight:600;">
+										<?php esc_html_e( 'Von', 'kategorie-exporter' ); ?>
+									</label>
+									<input type="date" name="<?php echo esc_attr( self::DATE_FROM ); ?>"
+										id="kat_export_date_from"
+										value=""
+										style="padding:4px 8px;">
+									<label for="kat_export_date_to" style="font-weight:600;">
+										<?php esc_html_e( 'Bis', 'kategorie-exporter' ); ?>
+									</label>
+									<input type="date" name="<?php echo esc_attr( self::DATE_TO ); ?>"
+										id="kat_export_date_to"
+										value=""
+										style="padding:4px 8px;">
+								</div>
+								<p style="margin:6px 0 0;color:#787c82;font-size:12px;">
+									<?php esc_html_e( 'Beide Felder leer lassen, um alle Beiträge ohne zeitliche Einschränkung zu exportieren.', 'kategorie-exporter' ); ?>
+								</p>
 							</td>
 						</tr>
 					</table>
@@ -152,8 +183,19 @@ class Kategorie_Exporter {
 			wp_die( esc_html__( 'Sicherheitscheck fehlgeschlagen.', 'kategorie-exporter' ) );
 		}
 
-		$cat_id = absint( $_POST[ self::CAT_FIELD ] ?? 0 );
-		$action = sanitize_key( $_POST[ self::ACTION_FIELD ] );
+		$cat_id    = absint( $_POST[ self::CAT_FIELD ] ?? 0 );
+		$action    = sanitize_key( $_POST[ self::ACTION_FIELD ] );
+		$date_from = sanitize_text_field( wp_unslash( $_POST[ self::DATE_FROM ] ?? '' ) );
+		$date_to   = sanitize_text_field( wp_unslash( $_POST[ self::DATE_TO   ] ?? '' ) );
+
+		// Validate date format (YYYY-MM-DD) if provided
+		$date_regex = '/^\d{4}-\d{2}-\d{2}$/';
+		if ( $date_from && ! preg_match( $date_regex, $date_from ) ) {
+			$date_from = '';
+		}
+		if ( $date_to && ! preg_match( $date_regex, $date_to ) ) {
+			$date_to = '';
+		}
 
 		// Validate category
 		if ( ! $cat_id ) {
@@ -164,13 +206,16 @@ class Kategorie_Exporter {
 			self::redirect_error( 'invalid_cat' );
 		}
 
-		// Fetch posts
-		$posts = self::get_posts( $cat_id );
+		// Fetch posts (with optional date range)
+		$posts = self::get_posts( $cat_id, $date_from, $date_to );
 		if ( empty( $posts ) ) {
 			self::redirect_error( 'no_posts' );
 		}
 
 		$rows = self::build_rows( $posts );
+
+		// Build date suffix for filenames
+		$date_suffix = self::build_date_suffix( $date_from, $date_to );
 
 		// Extend execution time & memory for large exports
 		@set_time_limit( 0 );
@@ -178,13 +223,13 @@ class Kategorie_Exporter {
 
 		switch ( $action ) {
 			case 'csv':
-				self::send_csv( $rows, $cat );
+				self::send_csv( $rows, $cat, $date_suffix );
 				break;
 			case 'xlsx':
-				self::send_xlsx( $rows, $cat );
+				self::send_xlsx( $rows, $cat, $date_suffix );
 				break;
 			case 'zip':
-				self::send_zip( $posts, $cat );
+				self::send_zip( $posts, $cat, $date_suffix );
 				break;
 			default:
 				self::redirect_error( 'invalid_cat' );
@@ -195,18 +240,47 @@ class Kategorie_Exporter {
 	 * Data helpers
 	 * --------------------------------------------------------------------- */
 
-	private static function get_posts( int $cat_id ): array {
-		$q = new WP_Query( [
+	private static function get_posts( int $cat_id, string $date_from = '', string $date_to = '' ): array {
+		$args = [
 			'cat'            => $cat_id,
 			'posts_per_page' => -1,
 			'post_status'    => 'publish',
 			'no_found_rows'  => true,
 			'orderby'        => 'date',
 			'order'          => 'DESC',
-		] );
+		];
+
+		if ( $date_from || $date_to ) {
+			$date_clause = [ 'inclusive' => true, 'column' => 'post_date' ];
+			if ( $date_from ) {
+				$date_clause['after'] = $date_from . ' 00:00:00';
+			}
+			if ( $date_to ) {
+				$date_clause['before'] = $date_to . ' 23:59:59';
+			}
+			$args['date_query'] = [ $date_clause ];
+		}
+
+		$q     = new WP_Query( $args );
 		$posts = $q->posts;
 		wp_reset_postdata();
 		return $posts ?: [];
+	}
+
+	/**
+	 * Builds a filename-safe date range suffix, e.g. "_2024-01-01_bis_2024-12-31"
+	 */
+	private static function build_date_suffix( string $date_from, string $date_to ): string {
+		if ( ! $date_from && ! $date_to ) {
+			return '';
+		}
+		if ( $date_from && $date_to ) {
+			return '_' . $date_from . '_bis_' . $date_to;
+		}
+		if ( $date_from ) {
+			return '_ab_' . $date_from;
+		}
+		return '_bis_' . $date_to;
 	}
 
 	/**
@@ -269,8 +343,8 @@ class Kategorie_Exporter {
 	 * CSV export
 	 * --------------------------------------------------------------------- */
 
-	private static function send_csv( array $rows, object $cat ): void {
-		$filename = 'kategorie-' . sanitize_title( $cat->name ) . '-' . gmdate( 'Y-m-d' ) . '.csv';
+	private static function send_csv( array $rows, object $cat, string $date_suffix = '' ): void {
+		$filename = 'kategorie-' . sanitize_title( $cat->name ) . $date_suffix . '_export-' . gmdate( 'Y-m-d' ) . '.csv';
 
 		while ( ob_get_level() ) {
 			ob_end_clean();
@@ -295,12 +369,12 @@ class Kategorie_Exporter {
 	 * XLSX export (no external library — pure OpenXML via ZipArchive)
 	 * --------------------------------------------------------------------- */
 
-	private static function send_xlsx( array $rows, object $cat ): void {
+	private static function send_xlsx( array $rows, object $cat, string $date_suffix = '' ): void {
 		if ( ! class_exists( 'ZipArchive' ) ) {
 			self::redirect_error( 'zip_fail' );
 		}
 
-		$filename = 'kategorie-' . sanitize_title( $cat->name ) . '-' . gmdate( 'Y-m-d' ) . '.xlsx';
+		$filename = 'kategorie-' . sanitize_title( $cat->name ) . $date_suffix . '_export-' . gmdate( 'Y-m-d' ) . '.xlsx';
 		$tmp      = tempnam( sys_get_temp_dir(), 'kat_xlsx_' );
 
 		// Register cleanup in case of fatal error
@@ -443,12 +517,12 @@ class Kategorie_Exporter {
 	 * Images ZIP export
 	 * --------------------------------------------------------------------- */
 
-	private static function send_zip( array $posts, object $cat ): void {
+	private static function send_zip( array $posts, object $cat, string $date_suffix = '' ): void {
 		if ( ! class_exists( 'ZipArchive' ) ) {
 			self::redirect_error( 'zip_fail' );
 		}
 
-		$filename = 'bilder-' . sanitize_title( $cat->name ) . '-' . gmdate( 'Y-m-d' ) . '.zip';
+		$filename = 'bilder-' . sanitize_title( $cat->name ) . $date_suffix . '_export-' . gmdate( 'Y-m-d' ) . '.zip';
 		$tmp      = tempnam( sys_get_temp_dir(), 'kat_zip_' );
 
 		register_shutdown_function( function() use ( $tmp ) {
