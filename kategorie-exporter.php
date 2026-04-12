@@ -3,7 +3,7 @@
  * Plugin Name: Kategorie Post & Bild Exporter
  * Plugin URI:  https://github.com/BattloXX/WP-Category-Export
  * Description: Exportiert alle Beiträge einer Kategorie als CSV oder Excel (XLSX) und lädt die Headerbilder als ZIP herunter. Das Headerbild ist im Export eindeutig verlinkt und benannt.
- * Version:     1.1.0
+ * Version:     1.1.1
  * Author:      Johannes Battlogg
  * Text Domain: kategorie-exporter
  * License:     GPL-2.0+
@@ -149,6 +149,13 @@ class Kategorie_Exporter {
 	 * --------------------------------------------------------------------- */
 
 	public static function show_notices() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		$screen = get_current_screen();
+		if ( ! $screen || $screen->id !== 'tools_page_kategorie-exporter' ) {
+			return;
+		}
 		if ( ! empty( $_GET['kat_export_error'] ) ) {
 			$code = sanitize_key( $_GET['kat_export_error'] );
 			$messages = [
@@ -426,9 +433,7 @@ class Kategorie_Exporter {
 
 		// --- sheet1.xml --------------------------------------------------
 		$col_count  = count( $rows[0] ?? [] );
-		$row_count  = count( $rows );
 		$last_col   = $col_letters[ $col_count - 1 ] ?? 'A';
-		$sheet_ref  = 'A1:' . $last_col . $row_count;
 
 		$sheet_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 			. '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
@@ -595,7 +600,7 @@ class Kategorie_Exporter {
 			return '';
 		}
 
-		$response = wp_remote_get( $url, [ 'timeout' => 30, 'sslverify' => false ] );
+		$response = wp_remote_get( $url, [ 'timeout' => 30 ] );
 		if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
 			return '';
 		}
