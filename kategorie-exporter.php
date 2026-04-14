@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Kategorie Post & Bild Exporter
  * Plugin URI:  https://github.com/BattloXX/WP-Category-Export
- * Description: Exportiert alle Beiträge einer Kategorie als CSV oder Excel (XLSX) und lädt die Headerbilder als ZIP herunter. Das Headerbild ist im Export eindeutig verlinkt und benannt.
- * Version:     1.1.1
+ * Description: Exportiert alle Beiträge einer Kategorie als CSV oder Excel (XLSX) und lädt die Headerbilder als ZIP herunter. Das Headerbild ist im Export eindeutig verlinkt und benannt. Unterstützt Feuerwehr-Wolfurt-Einsatzdetails.
+ * Version:     1.2.0
  * Author:      Johannes Battlogg
  * Text Domain: kategorie-exporter
  * License:     GPL-2.0+
@@ -313,6 +313,15 @@ class Kategorie_Exporter {
 			'Kategorien',
 			'Headerbild_URL',
 			'Headerbild_Dateiname',
+			// Feuerwehr Wolfurt – Einsatzdetails
+			'Einsatz_Nr',
+			'Alarmzeit',
+			'Einsatzort',
+			'Einsatzart',
+			'Mannschaft',
+			'Dauer_Min',
+			'Beteiligte_Organisationen',
+			'Fahrzeuge',
 		];
 
 		$rows = [ $headers ];
@@ -330,6 +339,39 @@ class Kategorie_Exporter {
 				$excerpt = wp_trim_words( strip_shortcodes( $post->post_content ), 30, '…' );
 			}
 
+			// ── Feuerwehr Wolfurt: Einsatzdetails ────────────────────────────
+			$einsatz_nr  = (string) get_post_meta( $post->ID, 'fw_einsatz_nr',    true );
+			$alarmzeit   = (string) get_post_meta( $post->ID, 'fw_alarmzeit',     true );
+			$einsatzort  = (string) get_post_meta( $post->ID, 'fw_einsatzort',    true );
+			$einsatzart  = (string) get_post_meta( $post->ID, 'fw_einsatzart',    true );
+			$mannschaft  = (string) get_post_meta( $post->ID, 'fw_mannschaft_nr', true );
+			$dauer       = (string) get_post_meta( $post->ID, 'fw_dauer_min',     true );
+			$andere_org  = (string) get_post_meta( $post->ID, 'fw_andere_org',    true );
+
+			// Fahrzeuge: Array von Post-IDs → Kürzel kommagetrennt auflösen
+			$fahrzeug_ids = get_post_meta( $post->ID, 'fw_fahrzeug_ids', true );
+			$fahrzeuge    = '';
+			if ( is_array( $fahrzeug_ids ) && ! empty( $fahrzeug_ids ) ) {
+				$kuerzel_list = [];
+				foreach ( $fahrzeug_ids as $fz_id ) {
+					$fz_id   = (int) $fz_id;
+					$kuerzel = get_post_meta( $fz_id, 'fw_fz_kuerzel', true );
+					if ( $kuerzel ) {
+						$kuerzel_list[] = $kuerzel;
+					} else {
+						$fz_post = get_post( $fz_id );
+						if ( $fz_post ) {
+							$kuerzel_list[] = $fz_post->post_title;
+						}
+					}
+				}
+				$fahrzeuge = implode( ', ', $kuerzel_list );
+			} elseif ( $fahrzeuge_legacy = get_post_meta( $post->ID, 'fw_fahrzeuge_ein', true ) ) {
+				// Fallback: älteres Freitextfeld
+				$fahrzeuge = (string) $fahrzeuge_legacy;
+			}
+			// ─────────────────────────────────────────────────────────────────
+
 			$rows[] = [
 				$post->ID,
 				$post->post_title,
@@ -340,6 +382,14 @@ class Kategorie_Exporter {
 				$cat_names,
 				$thumb_url,
 				$thumb_zip_name,
+				$einsatz_nr,
+				$alarmzeit,
+				$einsatzort,
+				$einsatzart,
+				$mannschaft,
+				$dauer,
+				$andere_org,
+				$fahrzeuge,
 			];
 		}
 
